@@ -109,6 +109,42 @@ enum cache_policy {
 #define CACHE_BLK_VALID		0x00000001	/* block in valid, in use */
 #define CACHE_BLK_DIRTY		0x00000002	/* dirty block */
 
+struct features
+{
+	md_addr_t trace_PC;
+	md_addr_t curr_PC;
+	md_addr_t tag;
+	byte_t data[1];
+	unsigned int count =0;
+};
+
+struct sampler_blk
+{
+	md_addr_t tag;
+	unsigned int lru_bits = 0;
+	signed int y_out;
+	struct features feats;
+	struct sampler_blk *prev;
+	struct sampler_blk *next;
+
+};
+
+struct sampler_set
+{
+	struct sampler_blk *HEAD;
+	struct sampler_blk *TAIL;
+	struct sampler_set *prev;
+	struct sampler_set *next;
+	unsigned int set_index;
+
+};
+
+struct sampler 
+{
+	struct sampler_set *HEAD;
+	struct sampler_set *TAIL;
+};
+
 /* cache block (or line) definition */
 struct cache_blk_t
 {
