@@ -275,6 +275,7 @@ cache_create(char *name,		/* name of the cache */
   struct cache_t *cp;
   struct cache_blk_t *blk;
   int i, j, bindex;
+  num_sets = nsets/SETS_JUMPS;
 
   /* check all cache parameters */
   if (nsets <= 0)
@@ -298,6 +299,8 @@ cache_create(char *name,		/* name of the cache */
   /* allocate the cache structure */
   cp = (struct cache_t *)
     calloc(1, sizeof(struct cache_t) + (nsets-1)*sizeof(struct cache_set_t));
+  s = (struct sampler_set *) calloc(nsets/SETS_JUMPS, sizeof(sampler_set) + assoc*size(sampler_blk));
+
   if (!cp)
     fatal("out of virtual memory");
 
