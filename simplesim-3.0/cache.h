@@ -109,6 +109,8 @@ enum cache_policy {
 #define CACHE_BLK_VALID		0x00000001	/* block in valid, in use */
 #define CACHE_BLK_DIRTY		0x00000002	/* dirty block */
 
+#define SETS_JUMPS 2
+
 struct features
 {
 	md_addr_t PC0;
@@ -130,14 +132,12 @@ struct sampler_blk
 
 struct sampler_set
 {
-	unsigned int num_blks;
 	struct sampler_blk *blks;
 	unsigned int true_set_index;
 
 };
 
 unsigned int num_sets;
-#define SETS_JUMPS 2
 struct sampler_set *sampler;
 
 /* cache block (or line) definition */

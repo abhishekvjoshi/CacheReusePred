@@ -299,7 +299,7 @@ cache_create(char *name,		/* name of the cache */
   /* allocate the cache structure */
   cp = (struct cache_t *)
     calloc(1, sizeof(struct cache_t) + (nsets-1)*sizeof(struct cache_set_t));
-  s = (struct sampler_set *) calloc(nsets/SETS_JUMPS, sizeof(sampler_set) + assoc*size(sampler_blk));
+  sampler = calloc(nsets/SETS_JUMPS, sizeof(struct sampler_set) + assoc * sizeof(struct sampler_blk));
 
   if (!cp)
     fatal("out of virtual memory");
@@ -358,6 +358,11 @@ cache_create(char *name,		/* name of the cache */
     {
       cp->sets[i].way_head = NULL;
       cp->sets[i].way_tail = NULL;
+
+      if (i%SETS_JUMPS == 0)
+      {
+        sampler[i/SETS_JUMPS].true_set_index = i;
+      }
       /* get a hash table, if needed */
       if (cp->hsize)
 	{
@@ -376,6 +381,18 @@ cache_create(char *name,		/* name of the cache */
          chains, if hash table exists */
       for (j=0; j<assoc; j++)
 	{
+    if (i%SETS_JUMPS == 0)
+    {
+      sampler[i/SETS_JUMPS].blks[j].lru_bits = 0;
+      sampler[i/SETS_JUMPS].blks[j].y_out = 0;
+      sampler[i/SETS_JUMPS].blks[j].feats.PC0 = 0;
+      sampler[i/SETS_JUMPS].blks[j].feats.PC1 = 0;
+      sampler[i/SETS_JUMPS].blks[j].feats.PC2 = 0;
+      sampler[i/SETS_JUMPS].blks[j].feats.PC3 = 0;
+      sampler[i/SETS_JUMPS].blks[j].feats.tag4 = 0;
+      sampler[i/SETS_JUMPS].blks[j].feats.tag7 = 0;
+      sampler[i/SETS_JUMPS].blks[j].tag = 0;
+    }
 	  /* locate next cache block */
 	  blk = CACHE_BINDEX(cp, cp->data, bindex);
 	  bindex++;
