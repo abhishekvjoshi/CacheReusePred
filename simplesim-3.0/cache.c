@@ -277,6 +277,86 @@ bool check_name_is_LLC (char *name){
 
 }
 
+struct features
+derive_features(md_addr_t tag)
+{
+  struct features feats = {
+    (PC0 >> 2) ^ cur_PC,
+    PC1 ^ cur_PC,
+    PC2 ^ cur_PC,
+    PC3 ^ cur_PC,
+    (tag >> 4) ^ cur_PC,
+    (tag >> 7) ^ cur_PC
+  };
+  return feats;
+}
+
+void modify_lru_status(md_addr_t set, int blk, int assoc)
+{
+  int i = 0;
+  int old_lru = sampler[set].blks[blk].lru_bits;
+  for (i = 0; i < assoc; i++)
+  {
+    if (sampler[set].blks[blk].lru_bits < old_lru)
+    {
+      sampler[set].blks[blk].lru_bits++;
+    }
+  }
+  sampler[set].blks[blk].lru_bits = 0;
+}
+
+void
+sampler_access( md_addr_t tag, 
+                md_addr_t sampled_set_index,
+                int assoc)
+{
+  int nbits = 32;
+  int blk_index = 0;
+  md_addr_t exp_part_tag = tag >> (nbits - 15);
+
+  for (blk_index = 0; blk_index < assoc; blk_index++)
+  {
+    md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag >> (nbits - 15);
+    if (true_part_tag == exp_part_tag && (sampler[sampled_set_index].blks[blk_index].valid == 1))
+    {
+      sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
+      modify_lru_status(sampled_set_index, blk_index, assoc);
+      // modify y_out
+      return;
+    }
+  }
+
+  for (blk_index = 0; blk_index < assoc; blk_index++)
+  {
+    // md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag >> (nbits - 15);
+    if (sampler[sampled_set_index].blks[blk_index].valid == 0)
+    {
+      sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
+      sampler[sampled_set_index].blks[blk_index].valid = 1;
+      sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
+      // should y_out be modified in this case ?
+      modify_lru_status(sampled_set_index, blk_index, assoc);
+      return;
+
+    }
+  }
+
+  /* If no position is found in the set to input data, we consider
+  replacement */
+  for (blk_index = 0; blk_index < assoc; blk_index++)
+  {
+    if (sampler[sampled_set_index].blks[blk_index].lru_bits == assoc-1)
+    {
+      sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
+      modify_lru_status(sampled_set_index, blk_index, assoc);
+      sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
+      // modify y_out
+      return;
+    }
+  }
+
+}
+
 /* create and initialize a general cache structure */
 struct cache_t *			/* pointer to cache created */
 cache_create(char *name,		/* name of the cache */
@@ -408,8 +488,9 @@ cache_create(char *name,		/* name of the cache */
 	{
     if (i%SETS_JUMPS == 0 && check_name_is_LLC (name))
     {
-      sampler[i/SETS_JUMPS].blks = calloc(assoc, sizeof(signed int) + sizeof(unsigned int) + 7 * sizeof(md_addr_t) + sizeof(struct features));
-      sampler[i/SETS_JUMPS].blks[j].lru_bits = 0;
+      sampler[i/SETS_JUMPS].blks = calloc(assoc, sizeof(signed int) + 2* sizeof(unsigned int) + 7 * sizeof(md_addr_t) + sizeof(struct features));
+      sampler[i/SETS_JUMPS].blks[j].lru_bits = assoc-1;
+      sampler[i/SETS_JUMPS].blks[j].valid = 0;
       sampler[i/SETS_JUMPS].blks[j].y_out = 0;
       sampler[i/SETS_JUMPS].blks[j].feats.PC0 = 0;
       sampler[i/SETS_JUMPS].blks[j].feats.PC1 = 0;
@@ -615,6 +696,20 @@ int update_PLRU_bits(unsigned int associativity, unsigned int index, unsigned in
     
 }
 
+void 
+set_PC_LLC_history()
+{
+  PC3 = PC2 >> 1;
+  PC2 = PC1 >> 1;
+  PC1 = PC0 >> 1;
+  PC0 = cur_PC;
+}
+
+void set_current_PC(md_addr_t PC)
+{
+  cur_PC = PC;
+}
+
 /* access a cache, perform a CMD operation on cache CP at address ADDR,
    places NBYTES of data at *P, returns latency of operation if initiated
    at NOW, places pointer to block user data in *UDATA, *P is untouched if
@@ -637,6 +732,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
   md_addr_t bofs = CACHE_BLK(cp, addr);
   struct cache_blk_t *blk, *repl;
   int lat = 0;
+
+  if (check_name_is_LLC(cp->name))
+  {
+    set_PC_LLC_history();
+    sampler_access(tag, set, cp->assoc);
+  }
 
   /* default replacement address */
   if (repl_addr)

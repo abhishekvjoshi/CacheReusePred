@@ -99,39 +99,39 @@
    speed block access, this macro decides if a cache is "highly associative" */
 
 //Feature Extraction
-md_addr_t features[6];
+// md_addr_t features[6];
 
-int rear = 1;
+// int rear = 1;
 
-void set_tag_feature(md_addr_t tag){
-  features[0] = tag >> 4;
-  features[1] = tag >> 7;
-}
+// void set_tag_feature(md_addr_t tag){
+//   features[0] = tag >> 4;
+//   features[1] = tag >> 7;
+// }
 
-void insert(md_addr_t pc){
-    if(rear==1){
-      features[2] = pc >> 2;
-      rear++;
-      return;
-    }else{
-      if(rear==5){
-        int index = 3;
-        for(int i=0; i<3; i++){
-          features[index-1] = features[index];
-          index++;
-        }
-        rear--;
-      }
-      features[rear] = features[rear] << 1;
-      int index = rear-1;
-      while(index>1){
-        features[index] = features[index] >> 1;
-        index--;
-      }
-      rear++;
-      features[rear] = pc >> 2;
-    }
-}
+// void insert(md_addr_t pc){
+//     if(rear==1){
+//       features[2] = pc >> 2;
+//       rear++;
+//       return;
+//     }else{
+//       if(rear==5){
+//         int index = 3;
+//         for(int i=0; i<3; i++){
+//           features[index-1] = features[index];
+//           index++;
+//         }
+//         rear--;
+//       }
+//       features[rear] = features[rear] << 1;
+//       int index = rear-1;
+//       while(index>1){
+//         features[index] = features[index] >> 1;
+//         index--;
+//       }
+//       rear++;
+//       features[rear] = pc >> 2;
+//     }
+// }
 
 // struct feature{
 //   md_addr_t feature_value;
@@ -223,6 +223,7 @@ enum cache_policy {
 
 #define SETS_JUMPS 2
 
+/* The hashed features */
 struct features
 {
 	md_addr_t PC0;
@@ -239,6 +240,7 @@ struct sampler_blk
 	signed int y_out;
 	struct features feats;
 	unsigned int lru_bits;
+  unsigned int valid;
 
 };
 
@@ -251,6 +253,27 @@ struct sampler_set
 
 unsigned int num_sets;
 struct sampler_set *sampler;
+
+
+struct table
+{
+  signed int w_PC0;
+  signed int w_PC1;
+  signed int w_PC2;
+  signed int w_PC3;
+  signed int w_tag4;
+  signed int w_tag7;
+};
+
+struct table tables[256];
+
+md_addr_t cur_PC;
+md_addr_t PC0;
+md_addr_t PC1;
+md_addr_t PC2;
+md_addr_t PC3;
+signed int threshold_theta;
+
 
 /* cache block (or line) definition */
 struct cache_blk_t
@@ -354,6 +377,16 @@ struct cache_t
      defined in this structure! */
   struct cache_set_t sets[1];	/* each entry is a set */
 };
+
+void 
+set_PC_LLC_history();
+
+void set_current_PC(md_addr_t PC);
+
+void
+sampler_access( md_addr_t tag, 
+                md_addr_t sampled_set_index, 
+                int assoc);
 
 /* create and initialize a general cache structure */
 struct cache_t *			/* pointer to cache created */
