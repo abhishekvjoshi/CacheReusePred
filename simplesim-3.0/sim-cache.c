@@ -2,20 +2,20 @@
 
 /* SimpleScalar(TM) Tool Suite
  * Copyright (C) 1994-2003 by Todd M. Austin, Ph.D. and SimpleScalar, LLC.
- * All Rights Reserved. 
- * 
+ * All Rights Reserved.
+ *
  * THIS IS A LEGAL DOCUMENT, BY USING SIMPLESCALAR,
  * YOU ARE AGREEING TO THESE TERMS AND CONDITIONS.
- * 
+ *
  * No portion of this work may be used by any commercial entity, or for any
  * commercial purpose, without the prior, written permission of SimpleScalar,
  * LLC (info@simplescalar.com). Nonprofit and noncommercial use is permitted
  * as described below.
- * 
+ *
  * 1. SimpleScalar is provided AS IS, with no warranty of any kind, express
  * or implied. The user of the program accepts full responsibility for the
  * application of the program and the use of any results.
- * 
+ *
  * 2. Nonprofit and noncommercial use is encouraged. SimpleScalar may be
  * downloaded, compiled, executed, copied, and modified solely for nonprofit,
  * educational, noncommercial research, and noncommercial scholarship
@@ -24,13 +24,13 @@
  * solely for nonprofit, educational, noncommercial research, and
  * noncommercial scholarship purposes provided that this notice in its
  * entirety accompanies all copies.
- * 
+ *
  * 3. ALL COMMERCIAL USE, AND ALL USE BY FOR PROFIT ENTITIES, IS EXPRESSLY
  * PROHIBITED WITHOUT A LICENSE FROM SIMPLESCALAR, LLC (info@simplescalar.com).
- * 
+ *
  * 4. No nonprofit user may place any restrictions on the use of this software,
  * including as modified by the user, by any other authorized user.
- * 
+ *
  * 5. Noncommercial and nonprofit users may distribute copies of SimpleScalar
  * in compiled or executable form as set forth in Section 2, provided that
  * either: (A) it is accompanied by the corresponding machine-readable source
@@ -40,11 +40,11 @@
  * must permit verbatim duplication by anyone, or (C) it is distributed by
  * someone who received only the executable form, and is accompanied by a
  * copy of the written offer of source code.
- * 
+ *
  * 6. SimpleScalar was developed by Todd M. Austin, Ph.D. The tool suite is
  * currently maintained by SimpleScalar LLC (info@simplescalar.com). US Mail:
  * 2395 Timbercrest Court, Ann Arbor, MI 48105.
- * 
+ *
  * Copyright (C) 1994-2003 by Todd M. Austin, Ph.D. and SimpleScalar, LLC.
  */
 
@@ -89,7 +89,7 @@ static unsigned int max_insts;
 /* level 1 instruction cache, entry level instruction cache */
 static struct cache_t *cache_il1 = NULL;
 
-/* level 1 instruction cache */
+/* level 2 instruction cache */
 static struct cache_t *cache_il2 = NULL;
 
 /* level 1 data cache, entry level data cache */
@@ -251,11 +251,11 @@ static char *pcstat_vars[MAX_PCSTAT_VARS];
 #define ISCOMPRESS(SZ)		(SZ)
 #endif /* TARGET_PISA */
 
-/* Registe simulator-specific options */
+/* Register simulator-specific options */
 void
 sim_reg_options(struct opt_odb_t *odb)	/* options database */
 {
-  opt_reg_header(odb, 
+  opt_reg_header(odb,
 "sim-cache: This simulator implements a functional cache simulator.  Cache\n"
 "statistics are generated for a user-selected cache and TLB configuration,\n"
 "which may include up to two levels of instruction and data cache (with any\n"
@@ -750,6 +750,30 @@ sim_main(void)
       regs.regs_F.d[MD_REG_ZERO] = 0.0;
 #endif /* TARGET_ALPHA */
 
+      //Initializing Features
+      md_addr_t tag_current;
+      if(itlb){
+        tag_current = (addr) >> itlb->tag_shift;
+      }else if(cache_il1){
+        tag_current = (addr) >> cache_il1->tag_shift;
+      }
+      md_addr_t pc_current = regs.regs_PC;
+      set_tag_feature(tag_current);
+      insert(pc_current);
+
+      //XORing the features with the current pc
+      md_addr_t hashed_features[6];
+      for(int i=0; i<6; i++){
+        hashed_features[i] = features[i] ^ pc_current;
+      }
+
+      md_addr_t table0[256] = {0};
+      md_addr_t table1[256] = {0};
+      md_addr_t table2[256] = {0};
+      md_addr_t table3[256] = {0};
+      md_addr_t table4[256] = {0};
+      md_addr_t table5[256] = {0};
+      
       /* get the next instruction to execute */
       if (itlb)
 	cache_access(itlb, Read, IACOMPRESS(regs.regs_PC),

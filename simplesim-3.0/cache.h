@@ -2,20 +2,20 @@
 
 /* SimpleScalar(TM) Tool Suite
  * Copyright (C) 1994-2003 by Todd M. Austin, Ph.D. and SimpleScalar, LLC.
- * All Rights Reserved. 
- * 
+ * All Rights Reserved.
+ *
  * THIS IS A LEGAL DOCUMENT, BY USING SIMPLESCALAR,
  * YOU ARE AGREEING TO THESE TERMS AND CONDITIONS.
- * 
+ *
  * No portion of this work may be used by any commercial entity, or for any
  * commercial purpose, without the prior, written permission of SimpleScalar,
  * LLC (info@simplescalar.com). Nonprofit and noncommercial use is permitted
  * as described below.
- * 
+ *
  * 1. SimpleScalar is provided AS IS, with no warranty of any kind, express
  * or implied. The user of the program accepts full responsibility for the
  * application of the program and the use of any results.
- * 
+ *
  * 2. Nonprofit and noncommercial use is encouraged. SimpleScalar may be
  * downloaded, compiled, executed, copied, and modified solely for nonprofit,
  * educational, noncommercial research, and noncommercial scholarship
@@ -24,13 +24,13 @@
  * solely for nonprofit, educational, noncommercial research, and
  * noncommercial scholarship purposes provided that this notice in its
  * entirety accompanies all copies.
- * 
+ *
  * 3. ALL COMMERCIAL USE, AND ALL USE BY FOR PROFIT ENTITIES, IS EXPRESSLY
  * PROHIBITED WITHOUT A LICENSE FROM SIMPLESCALAR, LLC (info@simplescalar.com).
- * 
+ *
  * 4. No nonprofit user may place any restrictions on the use of this software,
  * including as modified by the user, by any other authorized user.
- * 
+ *
  * 5. Noncommercial and nonprofit users may distribute copies of SimpleScalar
  * in compiled or executable form as set forth in Section 2, provided that
  * either: (A) it is accompanied by the corresponding machine-readable source
@@ -40,11 +40,11 @@
  * must permit verbatim duplication by anyone, or (C) it is distributed by
  * someone who received only the executable form, and is accompanied by a
  * copy of the written offer of source code.
- * 
+ *
  * 6. SimpleScalar was developed by Todd M. Austin, Ph.D. The tool suite is
  * currently maintained by SimpleScalar LLC (info@simplescalar.com). US Mail:
  * 2395 Timbercrest Court, Ann Arbor, MI 48105.
- * 
+ *
  * Copyright (C) 1994-2003 by Todd M. Austin, Ph.D. and SimpleScalar, LLC.
  */
 
@@ -96,6 +96,116 @@
 
 /* highly associative caches are implemented using a hash table lookup to
    speed block access, this macro decides if a cache is "highly associative" */
+
+//Feature Extraction
+md_addr_t features[6];
+
+int rear = 1;
+
+void set_tag_feature(md_addr_t tag){
+  features[0] = tag >> 4;
+  features[1] = tag >> 7;
+}
+
+void insert(md_addr_t pc){
+    if(rear==1){
+      features[2] = pc >> 2;
+      rear++;
+      return;
+    }else{
+      if(rear==5){
+        int index = 3;
+        for(int i=0; i<3; i++){
+          features[index-1] = features[index];
+          index++;
+        }
+        rear--;
+      }
+      features[rear] = features[rear] << 1;
+      int index = rear-1;
+      while(index>1){
+        features[index] = features[index] >> 1;
+        index--;
+      }
+      rear++;
+      features[rear] = pc >> 2;
+    }
+}
+
+// struct feature{
+//   md_addr_t feature_value;
+//   struct feature *link;
+// }*front,*rear;
+//
+// void set_tag_feature(md_addr_t tag){
+//   struct feature *block_shift_7 = (struct feature*)malloc(sizeof(struct feature));
+//   block_shift_7->link = NULL;
+//   block_shift_7->feature_value = tag >> 7;
+//
+//   struct feature *block_shift_4 = (struct feature*)malloc(sizeof(struct feature));
+//   block_shift_4->feature_value = tag >> 4;
+//   block_shift_4->link = block_shift_7;
+// }
+//
+// void insert(md_addr_t pc){
+//   struct feature *temp = (struct feature*)malloc(sizeof(struct feature));
+//   temp->link  = NULL;
+//   if(rear==NULL){
+//     front = rear = temp;
+//     block_shift_7 = front;
+//   }else{
+//     if(size()==4){
+//       delete();
+//     }
+//     rear->link = temp;
+//     rear = temp;
+//   }
+// }
+//
+// void delete(){
+//   struct feature *temp = front;
+//   if(front==NULL){
+//     front = rear = NULL;
+//     block_shift_7->link = front;
+//   }else{
+//     front = front->link;
+//     block_shift_7->link = front;
+//     free(temp);
+//   }
+// }
+//
+// bool is_empty(){
+//   if(front==NULL){
+//     return TRUE;
+//   }else{
+//     return FALSE;
+//   }
+// }
+//
+// struct feature* get_element(int index){
+//   int i = 0;
+//   struct feature *current = front;
+//   while(i<index && current!=NULL){
+//     i = i + 1;
+//     current = current->link;
+//   }
+//   return current;
+// }
+//
+// int size(){
+//   struct feature *temp;
+//   temp = front;
+//   int count = 0;
+//   if(front==NULL)
+//     return 0;
+//   while(temp){
+//     temp = temp->link;
+//     count++;
+//   }
+//   return count;
+// }
+//Feature Extraction finished.
+
 #define CACHE_HIGHLY_ASSOC(cp)	((cp)->assoc > 4)
 
 /* cache replacement policy */
