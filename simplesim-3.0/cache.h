@@ -53,6 +53,7 @@
 #define CACHE_H
 
 #include <stdio.h>
+#include <stdbool.h>
 
 #include "host.h"
 #include "misc.h"
@@ -102,7 +103,8 @@
 enum cache_policy {
   LRU,		/* replace least recently used block (perfect LRU) */
   Random,	/* replace a random block */
-  FIFO		/* replace the oldest block in the set */
+  FIFO,		/* replace the oldest block in the set */
+  PLRU
 };
 
 /* block status values */
@@ -173,6 +175,7 @@ struct cache_set_t
   struct cache_blk_t *blks;	/* cache blocks, allocated sequentially, so
 				   this pointer can also be used for random
 				   access to cache blocks */
+  unsigned int PLRU_bits;
 };
 
 /* cache definition */
@@ -285,30 +288,31 @@ void cache_stats(struct cache_t *cp, FILE *stream);
    at NOW, places pointer to block user data in *UDATA, *P is untouched if
    cache blocks are not allocated (!CP->BALLOC), UDATA should be NULL if no
    user data is attached to blocks */
-unsigned int				/* latency of access in cycles */
-cache_access(struct cache_t *cp,	/* cache to access */
-	     enum mem_cmd cmd,		/* access type, Read or Write */
-	     md_addr_t addr,		/* address of access */
-	     void *vp,			/* ptr to buffer for input/output */
-	     int nbytes,		/* number of bytes to access */
-	     tick_t now,		/* time of access */
-	     byte_t **udata,		/* for return of user data ptr */
-	     md_addr_t *repl_addr);	/* for address of replaced block */
+unsigned int        /* latency of access in cycles */
+cache_access(struct cache_t *cp,  /* cache to access */
+       enum mem_cmd cmd,    /* access type, Read or Write */
+       md_addr_t addr,    /* address of access */
+       void *vp,      /* ptr to buffer for input/output */
+       int nbytes,    /* number of bytes to access */
+       tick_t now,    /* time of access */
+       byte_t **udata,    /* for return of user data ptr */
+       md_addr_t *repl_addr, /* for address of replaced block */
+        bool LLC);
 
 /* cache access functions, these are safe, they check alignment and
    permissions */
 #define cache_double(cp, cmd, addr, p, now, udata)	\
-  cache_access(cp, cmd, addr, p, sizeof(double), now, udata)
+  cache_access(cp, cmd, addr, p, sizeof(double), now, udata, NULL, NULL)
 #define cache_float(cp, cmd, addr, p, now, udata)	\
-  cache_access(cp, cmd, addr, p, sizeof(float), now, udata)
+  cache_access(cp, cmd, addr, p, sizeof(float), now, udata, NULL, NULL)
 #define cache_dword(cp, cmd, addr, p, now, udata)	\
-  cache_access(cp, cmd, addr, p, sizeof(long long), now, udata)
+  cache_access(cp, cmd, addr, p, sizeof(long long), now, udata, NULL, NULL)
 #define cache_word(cp, cmd, addr, p, now, udata)	\
-  cache_access(cp, cmd, addr, p, sizeof(int), now, udata)
+  cache_access(cp, cmd, addr, p, sizeof(int), now, udata, NULL, NULL)
 #define cache_half(cp, cmd, addr, p, now, udata)	\
-  cache_access(cp, cmd, addr, p, sizeof(short), now, udata)
+  cache_access(cp, cmd, addr, p, sizeof(short), now, udata, NULL, NULL)
 #define cache_byte(cp, cmd, addr, p, now, udata)	\
-  cache_access(cp, cmd, addr, p, sizeof(char), now, udata)
+  cache_access(cp, cmd, addr, p, sizeof(char), now, udata, NULL, NULL)
 
 /* return non-zero if block containing address ADDR is contained in cache
    CP, this interface is used primarily for debugging and asserting cache

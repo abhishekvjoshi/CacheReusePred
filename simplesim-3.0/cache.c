@@ -256,6 +256,27 @@ update_way_list(struct cache_set_t *set,	/* set contained way chain */
     panic("bogus WHERE designator");
 }
 
+bool check_name_is_LLC (char *name){
+  char expname[3] = {'u', 'l', '2'};
+  int i = 0;
+  bool match = true;
+  while (name[i] != '\0' || expname[i] == '\0'){
+    if (name[i] != expname[i]){
+      return false;
+    }
+    i++;
+  }
+  if (i == 3)
+  {
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+
+}
+
 /* create and initialize a general cache structure */
 struct cache_t *			/* pointer to cache created */
 cache_create(char *name,		/* name of the cache */
@@ -276,6 +297,7 @@ cache_create(char *name,		/* name of the cache */
   struct cache_blk_t *blk;
   int i, j, bindex;
   num_sets = nsets/SETS_JUMPS;
+  printf("The name when creating cache is %s\n", name);
 
   /* check all cache parameters */
   if (nsets <= 0)
@@ -299,7 +321,10 @@ cache_create(char *name,		/* name of the cache */
   /* allocate the cache structure */
   cp = (struct cache_t *)
     calloc(1, sizeof(struct cache_t) + (nsets-1)*sizeof(struct cache_set_t));
-  sampler = calloc(nsets/SETS_JUMPS, sizeof(struct sampler_set) + assoc * sizeof(struct sampler_blk));
+  if (check_name_is_LLC (name))
+  {
+    sampler = calloc(nsets/SETS_JUMPS, sizeof(struct sampler_set) + sizeof(int) + sizeof(struct sampler_blk));
+  }
 
   if (!cp)
     fatal("out of virtual memory");
@@ -359,7 +384,7 @@ cache_create(char *name,		/* name of the cache */
       cp->sets[i].way_head = NULL;
       cp->sets[i].way_tail = NULL;
 
-      if (i%SETS_JUMPS == 0)
+      if (i%SETS_JUMPS == 0 && check_name_is_LLC (name))
       {
         sampler[i/SETS_JUMPS].true_set_index = i;
       }
@@ -381,8 +406,9 @@ cache_create(char *name,		/* name of the cache */
          chains, if hash table exists */
       for (j=0; j<assoc; j++)
 	{
-    if (i%SETS_JUMPS == 0)
+    if (i%SETS_JUMPS == 0 && check_name_is_LLC (name))
     {
+      sampler[i/SETS_JUMPS].blks = calloc(assoc, sizeof(signed int) + sizeof(unsigned int) + 7 * sizeof(md_addr_t) + sizeof(struct features));
       sampler[i/SETS_JUMPS].blks[j].lru_bits = 0;
       sampler[i/SETS_JUMPS].blks[j].y_out = 0;
       sampler[i/SETS_JUMPS].blks[j].feats.PC0 = 0;
@@ -427,6 +453,7 @@ cache_char2policy(char c)		/* replacement policy as a char */
 {
   switch (c) {
   case 'l': return LRU;
+  case 'p': return PLRU;
   case 'r': return Random;
   case 'f': return FIFO;
   default: fatal("bogus replacement policy, `%c'", c);
@@ -511,6 +538,83 @@ cache_stats(struct cache_t *cp,		/* cache instance */
 	  (double)cp->invalidations/sum);
 }
 
+/* Function to calculate the number of bits 
+in the binary representation of the value */
+int get_number_of_bits(int val)
+{
+  int count = 0;
+  
+  /* Loop till right shift results in 1. The number of bits is log base 2 of val. */
+  while (val != 1)
+  {
+    val = val >> 1;
+    count++;
+  }
+  return count;
+}
+
+/* Block index to be accessed based on PLRU state */
+int get_block_index_for_PLRU(unsigned int associativity, unsigned int PLRU_bits)
+{
+  /* If there are n cache levels, n-1 bits are used to represent the state */
+  int bit_count = associativity-1;
+  int shift = 0; 
+  int index = 0;
+  int i = 0;
+  for (; shift <= bit_count;)
+  {
+      /* Calculate shift to decide the next bit to be accessed based on binary tree representing the PLRU state */
+      int total_shift = bit_count-1-shift;
+      int cur_bit = (PLRU_bits >> total_shift) & 0x1;
+
+      /* Calculate the next shift based on current bit */
+      if (cur_bit == 0)
+      {
+          shift = 2*shift + 1;
+      }
+      else
+      {
+          shift = 2*shift + 2;
+      }
+
+      /* Update the index with the current bit that has been accessed */
+      index = (index << 1) | cur_bit;
+  }
+  return index;
+}
+
+/* Update PLRU state based on block index which has been accessed */ 
+int update_PLRU_bits(unsigned int associativity, unsigned int index, unsigned int PLRU_bits)
+{
+    unsigned int bit_count = associativity - 1;
+    unsigned int index_bits = get_number_of_bits(associativity);
+    unsigned int temp_index = PLRU_bits;
+    
+    unsigned int shift=0, i = 0;
+    
+  for (; shift <= bit_count;)
+  {
+      int total_shift = bit_count-1-shift;
+      int cur_bit = (PLRU_bits >> total_shift) & 0x1;
+      if (cur_bit == ((index>>(index_bits-1-i)) & 0x1))
+      {
+          temp_index = temp_index ^ (0x1 << total_shift);
+      }
+      if (cur_bit == 0)
+      {
+          shift = 2*shift + 1;
+      }
+      else
+      {
+          shift = 2*shift + 2;
+      }
+      i++;
+  }
+    
+    return temp_index;
+    
+}
+
 /* access a cache, perform a CMD operation on cache CP at address ADDR,
    places NBYTES of data at *P, returns latency of operation if initiated
    at NOW, places pointer to block user data in *UDATA, *P is untouched if
@@ -524,7 +628,8 @@ cache_access(struct cache_t *cp,	/* cache to access */
 	     int nbytes,		/* number of bytes to access */
 	     tick_t now,		/* time of access */
 	     byte_t **udata,		/* for return of user data ptr */
-	     md_addr_t *repl_addr)	/* for address of replaced block */
+	     md_addr_t *repl_addr,	/* for address of replaced block */
+        bool LLC)
 {
   byte_t *p = vp;
   md_addr_t tag = CACHE_TAG(cp, addr);
@@ -594,6 +699,42 @@ cache_access(struct cache_t *cp,	/* cache to access */
   case FIFO:
     repl = cp->sets[set].way_tail;
     update_way_list(&cp->sets[set], repl, Head);
+    break;
+  case PLRU:
+    {
+      int invalid_true=0;
+      int block_index = 0;
+
+      /* Check for invalid block */
+      for (blk=cp->sets[set].way_head;
+       blk;
+       blk=blk->way_next)
+       {
+         if (!(blk->status & CACHE_BLK_VALID))
+         {
+           repl = blk;
+           invalid_true=1;
+           cp->sets[set].PLRU_bits = update_PLRU_bits(cp->assoc, block_index, cp->sets[set].PLRU_bits);
+           break;
+         }
+         block_index++;
+       }
+       if (invalid_true==0)
+       {
+         /* Initial State of PLRU bits */
+         int init_PLRU_bits = cp->sets[set].PLRU_bits;
+
+         /* Derive block index to be replaced */
+         block_index = get_block_index_for_PLRU(cp->assoc, init_PLRU_bits);
+
+         /* Block to be replaced obtained using block index */
+         repl = CACHE_BINDEX(cp, cp->sets[set].blks, block_index);
+
+         /* Update PLRU bits depending on the block being replaced */
+         cp->sets[set].PLRU_bits = update_PLRU_bits(cp->assoc, block_index, init_PLRU_bits);
+         
+       }
+    }
     break;
   case Random:
     {
@@ -694,6 +835,22 @@ cache_access(struct cache_t *cp,	/* cache to access */
       /* move this block to head of the way (MRU) list */
       update_way_list(&cp->sets[set], blk, Head);
     }
+
+    /* Update PLRU state for cache hit */
+  if (cp->policy == PLRU)
+  {
+      int block_index = 0;
+      struct cache_blk_t *chosen_block = blk;
+
+      /* Calculate the block index using block which resulted in cache hit */
+      for (chosen_block = blk; chosen_block != NULL; chosen_block = chosen_block->way_prev)
+      {
+        block_index++;
+      }
+
+      /* Update PLRU bits based on block index where we obtained a cache hit */
+      cp->sets[set].PLRU_bits = update_PLRU_bits ( cp->assoc, block_index, cp->sets[set].PLRU_bits );
+  }
 
   /* tag is unchanged, so hash links (if they exist) are still valid */
 
