@@ -618,6 +618,7 @@ cache_create(char *name,		/* name of the cache */
 	  blk->status = 0;
 	  blk->tag = 0;
 	  blk->ready = 0;
+    blk->reuse = false;
 	  blk->user_data = (usize != 0
 			    ? (byte_t *)calloc(usize, sizeof(byte_t)) : NULL);
 
@@ -905,130 +906,165 @@ cache_access(struct cache_t *cp,	/* cache to access */
 
   /* select the appropriate block to replace, and re-link this entry to
      the appropriate place in the way list */
-  switch (cp->policy) {
-  case LRU:
-  case FIFO:
-    repl = cp->sets[set].way_tail;
-    update_way_list(&cp->sets[set], repl, Head);
-    break;
-  case PLRU:
+  if (check_name_is_LLC(cp->name))
+  {
+
+    // Pending work for cache miss
+    struct features current_feats = derive_features(tag);
+    int predicted_yout = obtain_prediction(current_feats);
+    if (predicted_yout < replace_threshold)
     {
-      int invalid_true=0;
-      int block_index = 0;
-
-      /* Check for invalid block */
-      for (blk=cp->sets[set].way_head;
-       blk;
-       blk=blk->way_next)
-       {
-         if (!(blk->status & CACHE_BLK_VALID))
-         {
-           repl = blk;
-           invalid_true=1;
-           cp->sets[set].PLRU_bits = update_PLRU_bits(cp->assoc, block_index, cp->sets[set].PLRU_bits);
-           break;
-         }
-         block_index++;
-       }
-       if (invalid_true==0)
-       {
-         /* Initial State of PLRU bits */
-         int init_PLRU_bits = cp->sets[set].PLRU_bits;
-
-         /* Derive block index to be replaced */
-         block_index = get_block_index_for_PLRU(cp->assoc, init_PLRU_bits);
-
-         /* Block to be replaced obtained using block index */
-         repl = CACHE_BINDEX(cp, cp->sets[set].blks, block_index);
-
-         /* Update PLRU bits depending on the block being replaced */
-         cp->sets[set].PLRU_bits = update_PLRU_bits(cp->assoc, block_index, init_PLRU_bits);
-         
-       }
+      blk->reuse = true;
     }
-    break;
-  case Random:
+    else
     {
-      int bindex = myrand() & (cp->assoc - 1);
-      repl = CACHE_BINDEX(cp, cp->sets[set].blks, bindex);
+      blk->reuse = false;
     }
-    break;
-  default:
-    panic("bogus replacement policy");
   }
 
-  /* remove this block from the hash bucket chain, if hash exists */
-  if (cp->hsize)
-    unlink_htab_ent(cp, &cp->sets[set], repl);
+  replace_normally:
+    switch (cp->policy) {
+    case LRU:
+    case FIFO:
+      repl = cp->sets[set].way_tail;
+      update_way_list(&cp->sets[set], repl, Head);
+      break;
+    case PLRU:
+      {
+        int invalid_true=0;
+        int block_index = 0;
 
-  /* blow away the last block to hit */
-  cp->last_tagset = 0;
-  cp->last_blk = NULL;
+        /* Check for invalid block */
+        for (blk=cp->sets[set].way_head;
+         blk;
+         blk=blk->way_next)
+         {
+           if (!(blk->status & CACHE_BLK_VALID))
+           {
+             repl = blk;
+             invalid_true=1;
+             cp->sets[set].PLRU_bits = update_PLRU_bits(cp->assoc, block_index, cp->sets[set].PLRU_bits);
+             break;
+           }
+           block_index++;
+         }
+         if (invalid_true==0)
+         {
+           /* Initial State of PLRU bits */
+           int init_PLRU_bits = cp->sets[set].PLRU_bits;
 
-  /* write back replaced block data */
-  if (repl->status & CACHE_BLK_VALID)
-    {
-      cp->replacements++;
+           /* Derive block index to be replaced */
+           block_index = get_block_index_for_PLRU(cp->assoc, init_PLRU_bits);
 
-      if (repl_addr)
-	*repl_addr = CACHE_MK_BADDR(cp, repl->tag, set);
- 
-      /* don't replace the block until outstanding misses are satisfied */
-      lat += BOUND_POS(repl->ready - now);
- 
-      /* stall until the bus to next level of memory is available */
-      lat += BOUND_POS(cp->bus_free - (now + lat));
- 
-      /* track bus resource usage */
-      cp->bus_free = MAX(cp->bus_free, (now + lat)) + 1;
+           /* Block to be replaced obtained using block index */
+           repl = CACHE_BINDEX(cp, cp->sets[set].blks, block_index);
 
-      if (repl->status & CACHE_BLK_DIRTY)
-	{
-	  /* write back the cache block */
-	  cp->writebacks++;
-	  lat += cp->blk_access_fn(Write,
-				   CACHE_MK_BADDR(cp, repl->tag, set),
-				   cp->bsize, repl, now+lat);
-	}
+           /* Update PLRU bits depending on the block being replaced */
+           cp->sets[set].PLRU_bits = update_PLRU_bits(cp->assoc, block_index, init_PLRU_bits);
+           
+         }
+      }
+      break;
+    case Random:
+      {
+        int bindex = myrand() & (cp->assoc - 1);
+        repl = CACHE_BINDEX(cp, cp->sets[set].blks, bindex);
+      }
+      break;
+    default:
+      panic("bogus replacement policy");
     }
+    goto continue_without_replacing;
 
-  /* update block tags */
-  repl->tag = tag;
-  repl->status = CACHE_BLK_VALID;	/* dirty bit set on update */
+  continue_without_replacing:
 
-  /* read data block */
-  lat += cp->blk_access_fn(Read, CACHE_BADDR(cp, addr), cp->bsize,
-			   repl, now+lat);
+    /* remove this block from the hash bucket chain, if hash exists */
+    if (cp->hsize)
+      unlink_htab_ent(cp, &cp->sets[set], repl);
 
-  /* copy data out of cache block */
-  if (cp->balloc)
-    {
-      CACHE_BCOPY(cmd, repl, bofs, p, nbytes);
-    }
+    /* blow away the last block to hit */
+    cp->last_tagset = 0;
+    cp->last_blk = NULL;
 
-  /* update dirty status */
-  if (cmd == Write)
-    repl->status |= CACHE_BLK_DIRTY;
+    /* write back replaced block data */
+    if (repl->status & CACHE_BLK_VALID)
+      {
+        cp->replacements++;
 
-  /* get user block data, if requested and it exists */
-  if (udata)
-    *udata = repl->user_data;
+        if (repl_addr)
+  	*repl_addr = CACHE_MK_BADDR(cp, repl->tag, set);
+   
+        /* don't replace the block until outstanding misses are satisfied */
+        lat += BOUND_POS(repl->ready - now);
+   
+        /* stall until the bus to next level of memory is available */
+        lat += BOUND_POS(cp->bus_free - (now + lat));
+   
+        /* track bus resource usage */
+        cp->bus_free = MAX(cp->bus_free, (now + lat)) + 1;
 
-  /* update block status */
-  repl->ready = now+lat;
+        if (repl->status & CACHE_BLK_DIRTY)
+  	{
+  	  /* write back the cache block */
+  	  cp->writebacks++;
+  	  lat += cp->blk_access_fn(Write,
+  				   CACHE_MK_BADDR(cp, repl->tag, set),
+  				   cp->bsize, repl, now+lat);
+  	}
+      }
 
-  /* link this entry back into the hash table */
-  if (cp->hsize)
-    link_htab_ent(cp, &cp->sets[set], repl);
+    /* update block tags */
+    repl->tag = tag;
+    repl->status = CACHE_BLK_VALID;	/* dirty bit set on update */
 
-  /* return latency of the operation */
-  return lat;
+    /* read data block */
+    lat += cp->blk_access_fn(Read, CACHE_BADDR(cp, addr), cp->bsize,
+  			   repl, now+lat);
+
+    /* copy data out of cache block */
+    if (cp->balloc)
+      {
+        CACHE_BCOPY(cmd, repl, bofs, p, nbytes);
+      }
+
+    /* update dirty status */
+    if (cmd == Write)
+      repl->status |= CACHE_BLK_DIRTY;
+
+    /* get user block data, if requested and it exists */
+    if (udata)
+      *udata = repl->user_data;
+
+    /* update block status */
+    repl->ready = now+lat;
+
+    /* link this entry back into the hash table */
+    if (cp->hsize)
+      link_htab_ent(cp, &cp->sets[set], repl);
+
+    /* return latency of the operation */
+    return lat;
 
 
  cache_hit: /* slow hit handler */
   
   /* **HIT** */
   cp->hits++;
+  if (check_name_is_LLC(cp->name))
+  {
+    struct features current_feats = derive_features(tag);
+    int predicted_yout = obtain_prediction(current_feats);
+    if (predicted_yout < replace_threshold)
+    {
+      blk->reuse = true;
+    }
+    else
+    {
+      blk->reuse = false;
+    }
+  }
+  
+
 
   /* copy data out of cache block, if block exists */
   if (cp->balloc)
@@ -1080,6 +1116,19 @@ cache_access(struct cache_t *cp,	/* cache to access */
   
   /* **FAST HIT** */
   cp->hits++;
+  if (check_name_is_LLC(cp->name))
+  {
+    struct features current_feats = derive_features(tag);
+    int predicted_yout = obtain_prediction(current_feats);
+    if (predicted_yout < replace_threshold)
+    {
+      blk->reuse = true;
+    }
+    else
+    {
+      blk->reuse = false;
+    }
+  }
 
   /* copy data out of cache block, if block exists */
   if (cp->balloc)
