@@ -272,7 +272,9 @@ md_addr_t PC0;
 md_addr_t PC1;
 md_addr_t PC2;
 md_addr_t PC3;
-signed int threshold_theta;
+signed int training_threshold;
+signed int bypass_threshold;
+signed int replace_threshold;
 
 
 /* cache block (or line) definition */

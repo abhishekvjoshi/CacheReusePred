@@ -277,29 +277,137 @@ bool check_name_is_LLC (char *name){
 
 }
 
+/* To be modified as needed */
+md_addr_t
+hash_func(md_addr_t addr)
+{
+  return addr;
+}
+
+int 
+obtain_prediction(struct features indexes)
+{
+  int temp_yout;
+  temp_yout = tables[indexes.PC0].w_PC0 +
+              tables[indexes.PC1].w_PC1 +
+              tables[indexes.PC2].w_PC2 +
+              tables[indexes.PC3].w_PC3 +
+              tables[indexes.tag4].w_tag4 +
+              tables[indexes.tag7].w_tag7;
+  return temp_yout;
+}
+
+struct features
+saturating_decrement_weights(struct features feats)
+{
+  if (tables[feats.PC0].w_PC0 > -32)
+  {
+    tables[feats.PC0].w_PC0--;
+  }
+
+  if (tables[feats.PC1].w_PC1 > -32)
+  {
+    tables[feats.PC1].w_PC1--;
+  }
+
+  if (tables[feats.PC2].w_PC2 > -32)
+  {
+    tables[feats.PC2].w_PC2--;
+  }
+
+  if (tables[feats.PC3].w_PC3 > -32)
+  {
+    tables[feats.PC3].w_PC3--;
+  }
+
+  if (tables[feats.tag4].w_tag4 > -32)
+  {
+    tables[feats.tag4].w_tag4--;
+  }
+
+  if (tables[feats.tag7].w_tag7 > -32)
+  {
+    tables[feats.tag7].w_tag7--;
+  }
+}
+
+struct features
+saturating_increment_weights(struct features feats)
+{
+  if (tables[feats.PC0].w_PC0 < 31)
+  {
+    tables[feats.PC0].w_PC0++;
+  }
+
+  if (tables[feats.PC1].w_PC1 < 31)
+  {
+    tables[feats.PC1].w_PC1++;
+  }
+
+  if (tables[feats.PC2].w_PC2 < 31)
+  {
+    tables[feats.PC2].w_PC2++;
+  }
+
+  if (tables[feats.PC3].w_PC3 < 31)
+  {
+    tables[feats.PC3].w_PC3++;
+  }
+
+  if (tables[feats.tag4].w_tag4 < 31)
+  {
+    tables[feats.tag4].w_tag4++;
+  }
+
+  if (tables[feats.tag7].w_tag7 < 31)
+  {
+    tables[feats.tag7].w_tag7++;
+  }
+}
+
+void
+train_predictor(struct features indexes, 
+                bool replacement)
+{
+  int temp_yout = obtain_prediction(indexes);
+
+  if (replacement && temp_yout < training_threshold)
+  {
+    saturating_increment_weights(indexes);
+  }
+  else if (!replacement && temp_yout > (-1 * training_threshold))
+  {
+    saturating_decrement_weights(indexes);
+  }
+
+}
+
 struct features
 derive_features(md_addr_t tag)
 {
   struct features feats = {
-    (PC0 >> 2) ^ cur_PC,
-    PC1 ^ cur_PC,
-    PC2 ^ cur_PC,
-    PC3 ^ cur_PC,
-    (tag >> 4) ^ cur_PC,
-    (tag >> 7) ^ cur_PC
+    hash_func(PC0 >> 2) ^ cur_PC,
+    hash_func(PC1) ^ cur_PC,
+    hash_func(PC2) ^ cur_PC,
+    hash_func(PC3) ^ cur_PC,
+    hash_func(tag >> 4) ^ cur_PC,
+    hash_func(tag >> 7) ^ cur_PC
   };
   return feats;
 }
 
-void modify_lru_status(md_addr_t set, int blk, int assoc)
+void 
+modify_lru_status(md_addr_t set, 
+                  int blk, 
+                  int assoc)
 {
   int i = 0;
   int old_lru = sampler[set].blks[blk].lru_bits;
   for (i = 0; i < assoc; i++)
   {
-    if (sampler[set].blks[blk].lru_bits < old_lru)
+    if (sampler[set].blks[i].lru_bits < old_lru)
     {
-      sampler[set].blks[blk].lru_bits++;
+      sampler[set].blks[i].lru_bits++;
     }
   }
   sampler[set].blks[blk].lru_bits = 0;
@@ -319,9 +427,10 @@ sampler_access( md_addr_t tag,
     md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag >> (nbits - 15);
     if (true_part_tag == exp_part_tag && (sampler[sampled_set_index].blks[blk_index].valid == 1))
     {
+      // modify y_out
+      train_predictor(sampler[sampled_set_index].blks[blk_index].feats, false);
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       modify_lru_status(sampled_set_index, blk_index, assoc);
-      // modify y_out
       return;
     }
   }
@@ -347,6 +456,7 @@ sampler_access( md_addr_t tag,
   {
     if (sampler[sampled_set_index].blks[blk_index].lru_bits == assoc-1)
     {
+      train_predictor(sampler[sampled_set_index].blks[blk_index].feats, true);
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       modify_lru_status(sampled_set_index, blk_index, assoc);
       sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
