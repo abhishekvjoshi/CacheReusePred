@@ -912,13 +912,27 @@ cache_access(struct cache_t *cp,	/* cache to access */
     // Pending work for cache miss
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
-    if (predicted_yout < replace_threshold)
+    if (predicted_yout < bypass_threshold)
     {
       blk->reuse = true;
+      /* Check for invalid block */
+      for (blk=cp->sets[set].way_head;
+      blk;
+      blk=blk->way_next)
+      {
+        if (!(blk->status & CACHE_BLK_VALID) || blk->reuse == false)
+        {
+          repl = blk;
+          goto continue_without_replacing;
+        }
+      }
+
+      goto replace_normally;
     }
     else
     {
       blk->reuse = false;
+      return lat;
     }
   }
 
