@@ -265,16 +265,7 @@ struct table
   signed int w_tag7;
 };
 
-struct table tables[256];
-
-md_addr_t cur_PC;
-md_addr_t PC0;
-md_addr_t PC1;
-md_addr_t PC2;
-md_addr_t PC3;
-signed int training_threshold;
-signed int bypass_threshold;
-signed int replace_threshold;
+extern md_addr_t cur_PC;
 
 
 /* cache block (or line) definition */

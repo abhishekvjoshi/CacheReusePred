@@ -396,6 +396,8 @@ static struct stat_stat_t *pcstat_stats[MAX_PCSTAT_VARS];
 static counter_t pcstat_lastvals[MAX_PCSTAT_VARS];
 static struct stat_stat_t *pcstat_sdists[MAX_PCSTAT_VARS];
 
+md_addr_t cur_PC=0;
+
 /* wedge all stat values into a counter_t */
 #define STATVAL(STAT)							\
   ((STAT)->sc == sc_int							\
@@ -3670,6 +3672,8 @@ simoo_reg_obj(struct regs_t *xregs,		/* registers to access */
 	}
       else
 	regs.regs_PC = eval_as_addr(*val);
+  cur_PC = regs.regs_PC;
+  // printf("Current PC in sim-outorder is %ld\n", cur_PC);
       break;
 
     case rt_NPC:
@@ -3747,6 +3751,10 @@ ruu_dispatch(void)
       /* get the next instruction from the IFETCH -> DISPATCH queue */
       inst = fetch_data[fetch_head].IR;
       regs.regs_PC = fetch_data[fetch_head].regs_PC;
+
+      cur_PC = regs.regs_PC;
+      // printf("Current PC in sim-outorder is %ld\n", cur_PC);
+
       pred_PC = fetch_data[fetch_head].pred_PC;
       dir_update_ptr = &(fetch_data[fetch_head].dir_update);
       stack_recover_idx = fetch_data[fetch_head].stack_recover_idx;
@@ -4432,6 +4440,8 @@ sim_main(void)
   /* set up program entry state */
   regs.regs_PC = ld_prog_entry;
   regs.regs_NPC = regs.regs_PC + sizeof(md_inst_t);
+  cur_PC = regs.regs_PC;
+  // printf("Current PC in sim-outorder is %ld\n", cur_PC);
 
   /* check for DLite debugger entry condition */
   if (dlite_check_break(regs.regs_PC, /* no access */0, /* addr */0, 0, 0))
@@ -4516,6 +4526,8 @@ sim_main(void)
 	  /* go to the next instruction */
 	  regs.regs_PC = regs.regs_NPC;
 	  regs.regs_NPC += sizeof(md_inst_t);
+    cur_PC = regs.regs_PC;
+    // printf("Current PC in sim-outorder is %ld\n", cur_PC);
 	}
     }
 
@@ -4525,6 +4537,8 @@ sim_main(void)
   fetch_regs_PC = regs.regs_PC - sizeof(md_inst_t);
   fetch_pred_PC = regs.regs_PC;
   regs.regs_PC = regs.regs_PC - sizeof(md_inst_t);
+  cur_PC = regs.regs_PC;
+  // printf("Current PC in sim-outorder is %ld\n", cur_PC);
 
   /* main simulator loop, NOTE: the pipe stages are traverse in reverse order
      to eliminate this/next state synchronization and relaxation problems */

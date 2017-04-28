@@ -239,6 +239,7 @@ static int compress_icache_addrs /* = FALSE */;
 /* text-based stat profiles */
 static int pcstat_nelt = 0;
 static char *pcstat_vars[MAX_PCSTAT_VARS];
+extern md_addr_t current_PC=0;
 
 /* convert 64-bit inst text addresses to 32-bit inst equivalents */
 #ifdef TARGET_PISA
@@ -731,9 +732,10 @@ sim_main(void)
   enum md_opcode op;
   register int is_write;
   enum md_fault_type fault;
-  int tab_index=0;
+  // int tab_index=0;
 
   fprintf(stderr, "sim: ** starting functional simulation w/ caches **\n");
+  printf("The simulation has begun\n");
 
   /* set up initial default next PC */
   regs.regs_NPC = regs.regs_PC + sizeof(md_inst_t);
@@ -759,7 +761,10 @@ sim_main(void)
       //   tag_current = (addr) >> cache_il1->tag_shift;
       // }
       md_addr_t pc_current = regs.regs_PC;
-      set_current_PC(pc_current);
+      // printf("%ld\n", pc_current);
+      // set_current_PC(pc_current);
+      current_PC = pc_current;
+      printf("The current PC in sim-cache is %ld\n", current_PC);
       // set_tag_feature(tag_current);
       // insert(pc_current);
 
@@ -777,14 +782,6 @@ sim_main(void)
       // md_addr_t table5[256] = {0};
 
       /* Initialize table weights */
-      for (tab_index=0; tab_index < 256; tab_index++){
-        tables[tab_index].w_PC0 = 0;
-        tables[tab_index].w_PC1 = 0;
-        tables[tab_index].w_PC2 = 0;
-        tables[tab_index].w_PC3 = 0;
-        tables[tab_index].w_tag4 = 0;
-        tables[tab_index].w_tag7 = 0;
-      }
       
       /* get the next instruction to execute */
       if (itlb)

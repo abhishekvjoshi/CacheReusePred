@@ -52,6 +52,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include "host.h"
 #include "misc.h"
@@ -86,6 +87,7 @@
 #define CACHE_WORD(data, bofs)	  __CACHE_ACCESS(unsigned int, data, bofs)
 #define CACHE_HALF(data, bofs)	  __CACHE_ACCESS(unsigned short, data, bofs)
 #define CACHE_BYTE(data, bofs)	  __CACHE_ACCESS(unsigned char, data, bofs)
+
 
 /* cache block hashing macros, this macro is used to index into a cache
    set hash table (to find the correct block on N in an N-way cache), the
@@ -138,6 +140,20 @@
 
 /* bound sqword_t/dfloat_t to positive int */
 #define BOUND_POS(N)		((int)(MIN(MAX(0, (N)), 2147483647)))
+
+#define TABLE_SIZE 256
+
+
+struct table tables[256];
+
+md_addr_t cur_PC;
+md_addr_t PC0;
+md_addr_t PC1;
+md_addr_t PC2;
+md_addr_t PC3;
+signed int bypass_threshold;
+signed int replace_threshold;
+signed int training_threshold;
 
 /* unlink BLK from the hash table bucket chain in SET */
 static void
@@ -281,22 +297,28 @@ bool check_name_is_LLC (char *name){
 md_addr_t
 hash_func(md_addr_t addr)
 {
-  return addr;
+  return addr % TABLE_SIZE;
 }
 
 int 
 obtain_prediction(struct features indexes)
 {
   int temp_yout;
+  // Incorrect hash function leading to very huge feature values and such tables would not be accessible !
+  // Hence facing a seg fault at this point ......
+  // printf("The first table value is %ld\n", indexes.tag7);
   temp_yout = tables[indexes.PC0].w_PC0 +
               tables[indexes.PC1].w_PC1 +
               tables[indexes.PC2].w_PC2 +
               tables[indexes.PC3].w_PC3 +
               tables[indexes.tag4].w_tag4 +
               tables[indexes.tag7].w_tag7;
+
+
   return temp_yout;
 }
 
+/* Function to perform saturating decrement on table weights */
 struct features
 saturating_decrement_weights(struct features feats)
 {
@@ -331,6 +353,7 @@ saturating_decrement_weights(struct features feats)
   }
 }
 
+/* Function to perform saturating increment on table weights */
 struct features
 saturating_increment_weights(struct features feats)
 {
@@ -365,33 +388,35 @@ saturating_increment_weights(struct features feats)
   }
 }
 
-void
+int
 train_predictor(struct features indexes, 
                 bool replacement)
 {
   int temp_yout = obtain_prediction(indexes);
+  // printf("Prediction obtained \n");
 
   if (replacement && temp_yout < training_threshold)
   {
     saturating_increment_weights(indexes);
   }
-  else if (!replacement && temp_yout > (-1 * training_threshold))
+  else if (!replacement && (temp_yout > (-1 * training_threshold)))
   {
     saturating_decrement_weights(indexes);
   }
 
 }
 
+
 struct features
 derive_features(md_addr_t tag)
 {
   struct features feats = {
-    hash_func(PC0 >> 2) ^ cur_PC,
-    hash_func(PC1) ^ cur_PC,
-    hash_func(PC2) ^ cur_PC,
-    hash_func(PC3) ^ cur_PC,
-    hash_func(tag >> 4) ^ cur_PC,
-    hash_func(tag >> 7) ^ cur_PC
+    hash_func((PC0 >> 2) ^ cur_PC),
+    hash_func(PC1 ^ cur_PC),
+    hash_func(PC2 ^ cur_PC),
+    hash_func(PC3 ^ cur_PC),
+    hash_func((tag >> 4) ^ cur_PC),
+    hash_func((tag >> 7) ^ cur_PC)
   };
   return feats;
 }
@@ -418,33 +443,45 @@ sampler_access( md_addr_t tag,
                 md_addr_t sampled_set_index,
                 int assoc)
 {
-  int nbits = 32;
+  int nbits = 64;
   int blk_index = 0;
   md_addr_t exp_part_tag = tag >> (nbits - 15);
+  // printf("Sampler access has begun\n");
 
   for (blk_index = 0; blk_index < assoc; blk_index++)
   {
-    md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag >> (nbits - 15);
+    // printf("Partial tag about to be extracted for sampler and set is %d and block index is %d\n");
+    md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag;// >> (nbits - 15);
+
+    
     if (true_part_tag == exp_part_tag && (sampler[sampled_set_index].blks[blk_index].valid == 1))
     {
       // modify y_out
-      train_predictor(sampler[sampled_set_index].blks[blk_index].feats, false);
+
+      // printf("Tag match occured in sampler %d\n", 1);
+      sampler[sampled_set_index].blks[blk_index].y_out = train_predictor(sampler[sampled_set_index].blks[blk_index].feats, false);
+      // printf("Predictor training completed \n");
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       modify_lru_status(sampled_set_index, blk_index, assoc);
       return;
     }
   }
 
+  // printf("Completed check for sampler hit \n");
+
   for (blk_index = 0; blk_index < assoc; blk_index++)
   {
     // md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag >> (nbits - 15);
+
     if (sampler[sampled_set_index].blks[blk_index].valid == 0)
     {
+      // printf("Found an invalid sampler way %d\n", 1);
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       sampler[sampled_set_index].blks[blk_index].valid = 1;
       sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
-      // should y_out be modified in this case ?
+      // should y_out be modified in this case ? -> likely should be modified
       modify_lru_status(sampled_set_index, blk_index, assoc);
+      // printf("Invalid sampler way is now valid %d\n", 1);
       return;
 
     }
@@ -456,7 +493,8 @@ sampler_access( md_addr_t tag,
   {
     if (sampler[sampled_set_index].blks[blk_index].lru_bits == assoc-1)
     {
-      train_predictor(sampler[sampled_set_index].blks[blk_index].feats, true);
+      // printf("Sampler replacement has occurred %d\n", 1);
+      sampler[sampled_set_index].blks[blk_index].y_out = train_predictor(sampler[sampled_set_index].blks[blk_index].feats, true);
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       modify_lru_status(sampled_set_index, blk_index, assoc);
       sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
@@ -486,8 +524,24 @@ cache_create(char *name,		/* name of the cache */
   struct cache_t *cp;
   struct cache_blk_t *blk;
   int i, j, bindex;
+  // md_addr_t current_PC;
+  // cur_PC = current_PC;
   num_sets = nsets/SETS_JUMPS;
-  printf("The name when creating cache is %s\n", name);
+  int tab_index = 0;
+  training_threshold = 74;
+  bypass_threshold = 3;
+  replace_threshold = 124;
+  // printf("The name when creating cache is %s\n", name);
+
+  for (tab_index=0; tab_index < 256; tab_index++){
+        tables[tab_index].w_PC0 = 0;
+        tables[tab_index].w_PC1 = 0;
+        tables[tab_index].w_PC2 = 0;
+        tables[tab_index].w_PC3 = 0;
+        tables[tab_index].w_tag4 = 0;
+        tables[tab_index].w_tag7 = 0;
+  }
+      
 
   /* check all cache parameters */
   if (nsets <= 0)
@@ -806,7 +860,7 @@ int update_PLRU_bits(unsigned int associativity, unsigned int index, unsigned in
     return temp_index;
     
 }
-
+/* Method to PC history on each LLC access */
 void 
 set_PC_LLC_history()
 {
@@ -816,6 +870,7 @@ set_PC_LLC_history()
   PC0 = cur_PC;
 }
 
+/* Set the current PC */
 void set_current_PC(md_addr_t PC)
 {
   cur_PC = PC;
@@ -843,13 +898,22 @@ cache_access(struct cache_t *cp,	/* cache to access */
   md_addr_t bofs = CACHE_BLK(cp, addr);
   struct cache_blk_t *blk, *repl;
   int lat = 0;
+  // md_addr_t current_PC;
+  // cur_PC = current_PC;
+
 
   if (check_name_is_LLC(cp->name))
   {
+
+    // printf("Cache access by: %s\n", cp->name);
+    // printf("Current PC is %ld\n", cur_PC);
+    // sleep(10);
     set_PC_LLC_history();
-    sampler_access(tag, set, cp->assoc);
+    sampler_access(tag, set/SETS_JUMPS, cp->assoc);
+    // printf("Sampler access completed \n");
   }
 
+  // printf("Completed sampler access \n");
   /* default replacement address */
   if (repl_addr)
     *repl_addr = 0;
@@ -910,28 +974,33 @@ cache_access(struct cache_t *cp,	/* cache to access */
   {
 
     // Pending work for cache miss
+
+    // printf("A cache miss has now occurred for cache : %s\n", cp->name);
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
+    // printf("Prediction successfully obtained\n");
     if (predicted_yout < bypass_threshold)
     {
-      blk->reuse = true;
+      // printf("Bypass is not going to occur \n");
+      // blk->reuse = true;
       /* Check for invalid block */
-      for (blk=cp->sets[set].way_head;
-      blk;
-      blk=blk->way_next)
-      {
-        if (!(blk->status & CACHE_BLK_VALID) || blk->reuse == false)
-        {
-          repl = blk;
-          goto continue_without_replacing;
-        }
-      }
-
+      // for (blk=cp->sets[set].way_head;
+      // blk;
+      // blk=blk->way_next)
+      // {
+      //   if (!(blk->status & CACHE_BLK_VALID) || blk->reuse == false)
+      //   {
+      //     repl = blk;
+      //     goto continue_without_replacing;
+      //   }
+      // }
+      // printf("Choosing to replace normally\n");
       goto replace_normally;
     }
     else
     {
-      blk->reuse = false;
+      // blk->reuse = false;
+      // printf("Bypass has occurred \n");
       return lat;
     }
   }
@@ -988,6 +1057,7 @@ cache_access(struct cache_t *cp,	/* cache to access */
     default:
       panic("bogus replacement policy");
     }
+    // printf("No issues so far for cache %s\n", cp->name);
     goto continue_without_replacing;
 
   continue_without_replacing:
