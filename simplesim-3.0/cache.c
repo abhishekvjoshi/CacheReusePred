@@ -390,10 +390,11 @@ saturating_increment_weights(struct features feats)
 
 int
 train_predictor(struct features indexes, 
+                int temp_yout, 
                 bool replacement)
 {
-  int temp_yout = obtain_prediction(indexes);
-  // printf("Prediction obtained \n");
+  // int temp_yout = obtain_prediction(indexes);
+  // printf("Training threshold is %d \n", training_threshold);
 
   if (replacement && temp_yout < training_threshold)
   {
@@ -459,9 +460,10 @@ sampler_access( md_addr_t tag,
       // modify y_out
 
       // printf("Tag match occured in sampler %d\n", 1);
-      sampler[sampled_set_index].blks[blk_index].y_out = train_predictor(sampler[sampled_set_index].blks[blk_index].feats, false);
+      train_predictor(sampler[sampled_set_index].blks[blk_index].feats, sampler[sampled_set_index].blks[blk_index].y_out, false);
       // printf("Predictor training completed \n");
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
+      sampler[sampled_set_index].blks[blk_index].y_out = obtain_prediction(sampler[sampled_set_index].blks[blk_index].feats);
       modify_lru_status(sampled_set_index, blk_index, assoc);
       return;
     }
@@ -479,6 +481,7 @@ sampler_access( md_addr_t tag,
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       sampler[sampled_set_index].blks[blk_index].valid = 1;
       sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
+      sampler[sampled_set_index].blks[blk_index].y_out = obtain_prediction(sampler[sampled_set_index].blks[blk_index].feats);
       // should y_out be modified in this case ? -> likely should be modified
       modify_lru_status(sampled_set_index, blk_index, assoc);
       // printf("Invalid sampler way is now valid %d\n", 1);
@@ -494,10 +497,11 @@ sampler_access( md_addr_t tag,
     if (sampler[sampled_set_index].blks[blk_index].lru_bits == assoc-1)
     {
       // printf("Sampler replacement has occurred %d\n", 1);
-      sampler[sampled_set_index].blks[blk_index].y_out = train_predictor(sampler[sampled_set_index].blks[blk_index].feats, true);
+      train_predictor(sampler[sampled_set_index].blks[blk_index].feats, sampler[sampled_set_index].blks[blk_index].y_out, true);
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       modify_lru_status(sampled_set_index, blk_index, assoc);
       sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
+      sampler[sampled_set_index].blks[blk_index].y_out = obtain_prediction(sampler[sampled_set_index].blks[blk_index].feats);
       // modify y_out
       return;
     }
@@ -528,9 +532,9 @@ cache_create(char *name,		/* name of the cache */
   // cur_PC = current_PC;
   num_sets = nsets/SETS_JUMPS;
   int tab_index = 0;
-  training_threshold = 74;
-  bypass_threshold = 3;
-  replace_threshold = 124;
+  training_threshold = 250;
+  bypass_threshold = -20;
+  replace_threshold = 100;
   // printf("The name when creating cache is %s\n", name);
 
   for (tab_index=0; tab_index < 256; tab_index++){
@@ -979,21 +983,22 @@ cache_access(struct cache_t *cp,	/* cache to access */
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
     // printf("Prediction successfully obtained\n");
+    // printf("Bypass threshold is %d \n", bypass_threshold);
     if (predicted_yout < bypass_threshold)
     {
       // printf("Bypass is not going to occur \n");
       // blk->reuse = true;
       /* Check for invalid block */
-      // for (blk=cp->sets[set].way_head;
-      // blk;
-      // blk=blk->way_next)
-      // {
-      //   if (!(blk->status & CACHE_BLK_VALID) || blk->reuse == false)
-      //   {
-      //     repl = blk;
-      //     goto continue_without_replacing;
-      //   }
-      // }
+      for (blk=cp->sets[set].way_head;
+      blk;
+      blk=blk->way_next)
+      {
+        if (!(blk->status & CACHE_BLK_VALID) || blk->reuse == false)
+        {
+          repl = blk;
+          goto continue_without_replacing;
+        }
+      }
       // printf("Choosing to replace normally\n");
       goto replace_normally;
     }
@@ -1138,6 +1143,7 @@ cache_access(struct cache_t *cp,	/* cache to access */
   {
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
+    // printf("Replacement threshold is %d\n", replace_threshold);
     if (predicted_yout < replace_threshold)
     {
       blk->reuse = true;
