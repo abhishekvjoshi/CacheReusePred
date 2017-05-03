@@ -274,24 +274,15 @@ update_way_list(struct cache_set_t *set,	/* set contained way chain */
 
 bool check_name_is_LLC (char *name){
   char expname[3] = {'u', 'l', '2'};
-  // int i = 0;
-  // bool match = true;
-  // while (name[i] != '\0' || expname[i] == '\0'){
-  //   if (name[i] != expname[i]){
-  //     return false;
-  //   }
-  //   i++;
-  // }
-  // if (i == 3)
-  // {
-  //   return true;
-  // }
-  // else
-  // {
-  //   return false;
-  // }
-  int res = strncmp(expname, name, 3);
-  if (res == 0)
+  int i = 0;
+  bool match = true;
+  while (name[i] != '\0' || expname[i] == '\0'){
+    if (name[i] != expname[i]){
+      return false;
+    }
+    i++;
+  }
+  if (i == 3)
   {
     return true;
   }
@@ -299,6 +290,7 @@ bool check_name_is_LLC (char *name){
   {
     return false;
   }
+
 }
 
 /* To be modified as needed */
@@ -452,10 +444,10 @@ sampler_access( md_addr_t tag,
                 md_addr_t sampled_set_index,
                 int assoc)
 {
-  int nbits = 64;
+  int nbits = get_number_of_bits_in_address(tag);
+  // printf("Size of tag is %d\n", nbits);
   int blk_index = 0;
-  int part_tag_length = 15;
-  md_addr_t exp_part_tag = tag >> (nbits - part_tag_length);
+  md_addr_t exp_part_tag = tag >> (nbits - 8);
   // printf("Sampler access has begun\n");
 
   for (blk_index = 0; blk_index < assoc; blk_index++)
@@ -541,9 +533,9 @@ cache_create(char *name,		/* name of the cache */
   // cur_PC = current_PC;
   num_sets = nsets/SETS_JUMPS;
   int tab_index = 0;
-  training_threshold = 300;
-  bypass_threshold = -20;
-  replace_threshold = 1;
+  training_threshold = 310;
+  bypass_threshold = -1000;
+  replace_threshold = 40;
   // printf("The name when creating cache is %s\n", name);
 
   for (tab_index=0; tab_index < 256; tab_index++){
@@ -797,6 +789,19 @@ cache_stats(struct cache_t *cp,		/* cache instance */
 	  (double)cp->invalidations/sum);
 }
 
+int get_number_of_bits_in_address(md_addr_t val)
+{
+  int count = 0;
+  
+  /* Loop till right shift results in 1. The number of bits is log base 2 of val. */
+  while (val != 1)
+  {
+    val = val >> 1;
+    count++;
+  }
+  return ++count;
+}
+
 /* Function to calculate the number of bits 
 in the binary representation of the value */
 int get_number_of_bits(int val)
@@ -877,12 +882,10 @@ int update_PLRU_bits(unsigned int associativity, unsigned int index, unsigned in
 void 
 set_PC_LLC_history()
 {
-  printf("PCs before modifying history %ld, %ld, %ld, %ld \n", PC3, PC2, PC1, PC0);
   PC3 = PC2 >> 1;
   PC2 = PC1 >> 1;
   PC1 = PC0 >> 1;
   PC0 = cur_PC;
-  printf("PCs after modifying history %ld, %ld, %ld, %ld \n", PC3, PC2, PC1, PC0);
 }
 
 /* Set the current PC */
@@ -920,8 +923,8 @@ cache_access(struct cache_t *cp,	/* cache to access */
   if (check_name_is_LLC(cp->name))
   {
 
-    printf("Cache access by: %s\n", cp->name);
-    printf("Current PC is %ld\n", cur_PC);
+    // printf("Cache access by: %s\n", cp->name);
+    // printf("Current PC is %ld\n", cur_PC);
     // sleep(10);
     set_PC_LLC_history();
     sampler_access(tag, set/SETS_JUMPS, cp->assoc);
@@ -989,10 +992,16 @@ cache_access(struct cache_t *cp,	/* cache to access */
   {
 
     // Pending work for cache miss
+
+    // printf("A cache miss has now occurred for cache : %s\n", cp->name);
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
+    // printf("Prediction successfully obtained\n");
+    // printf("Bypass threshold is %d \n", bypass_threshold);
     if (predicted_yout < bypass_threshold)
     {
+      // printf("Bypass is not going to occur \n");
+      // blk->reuse = true;
       /* Check for invalid block */
       for (blk=cp->sets[set].way_head;
       blk;
@@ -1004,10 +1013,13 @@ cache_access(struct cache_t *cp,	/* cache to access */
           goto continue_without_replacing;
         }
       }
+      // printf("Choosing to replace normally\n");
       goto replace_normally;
     }
     else
     {
+      // blk->reuse = false;
+      // printf("Bypass has occurred \n");
       return lat;
     }
   }
