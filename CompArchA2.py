@@ -1,5 +1,5 @@
 import subprocess, os
-import re
+import re, time
 
 main_loc = "/home/abhishekvjoshi/CSCE614/Project/CacheReusePred/"
 logs_loc = "/home/abhishekvjoshi/CSCE614/Project/CacheReusePred/Logs/"
@@ -8,17 +8,18 @@ bmarks = ["crafty", "gap", "mcf", "parser", "gcc", "gzip", "vortex", "vpr", "bzi
 regex = ["sim_IPC +[0-9]+.[0-9]+", "sim_total_insn +[0-9]+", "dl1.hits +[0-9]+", "dl1.misses +[0-9]+", "ul2.hits +[0-9]+", "ul2.misses +[0-9]+"]
 
 os.chdir(main_loc)
-# subprocess.call("mkdir Logs", shell=True)
+# subprocess.call("mkdir Logs_Project_Final", shell=True)
 # os.chdir(logs_loc)
 
 # for bm in bmarks:
 # 	subprocess.call("mkdir "+bm, shell=True)
 
-tr_thres = 300
-b_thres = -20
-r_thres = 1
-tagbits = 15
+tr_thres = 150
+b_thres = 150
+r_thres = 100
+tagbits = 8
 i_skip = 100
+sets = 2
 dl1_mpki_data = {}
 dl2_mpki_data = {}
 dl1_misses_data = {}
@@ -27,19 +28,22 @@ dl1_hits_data = {}
 dl2_hits_data = {}
 ins_data = {}
 ipc_data = {}
+os.chdir(main_loc)
 
 for i, bm in enumerate(bmarks):
 	if i != i_skip:
 		subprocess.call("cp runscripts/RUN"+bm+" spec2000args/"+bm, shell=True)
 		os.chdir("spec2000args/"+bm)
 		subprocess.call("./RUN"+bm+" ../../simplesim-3.0/sim-outorder ../../spec2000binaries/"+bm+"00.peak.ev6 -max:inst 50000000 -fastfwd 20000000 -redir:sim "+ \
-			logs_loc+bm+"/CacheReuse_tagbits_"+str(tagbits)+"_t_"+str(tr_thres)+"_b_"+str(b_thres)+"_r_"+str(r_thres)+"_"+bm+"_logs.txt -cache:dl1 dl1:1024:32:8:l -cache:dl2 ul2:4096:64:8:l", shell=True)	
+			logs_loc+bm+"/CacheReuse_finalLogs_t_"+str(tr_thres)+"_b_"+str(b_thres)+"_r_"+str(r_thres)+"_"+bm+"_logs.txt -cache:dl1 dl1:1024:32:8:l -cache:dl2 ul2:4096:64:8:l", shell=True)	
 		os.chdir(main_loc)
+		print "\nNew benchmark started +++++++++++++++++++++++++++++++++++++++++++++++"
+		time.sleep(2);
 
 for j, bm in enumerate(bmarks):
 	# for i, pat in enumerate(regex):	
 		if j != i_skip:
-			f = open(logs_loc+bm+"/CacheReuse_tagbits_"+str(tagbits)+"_t_"+str(tr_thres)+"_b_"+str(b_thres)+"_r_"+str(r_thres)+"_"+bm+"_logs.txt")
+			f = open(logs_loc+bm+"/CacheReuse_finalLogs_t_"+str(tr_thres)+"_b_"+str(b_thres)+"_r_"+str(r_thres)+"_"+bm+"_logs.txt")
 			txt = f.read()
 			ipc = re.findall(regex[0], txt)
 			ipc_data[j] = float(ipc[0].split()[1])
