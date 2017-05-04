@@ -742,6 +742,7 @@ cache_config(struct cache_t *cp,	/* cache instance */
 	  cp->policy == LRU ? "LRU"
 	  : cp->policy == Random ? "Random"
 	  : cp->policy == FIFO ? "FIFO"
+    : cp->policy == PLRU ? "PLRU"
 	  : (abort(), ""));
 }
 
