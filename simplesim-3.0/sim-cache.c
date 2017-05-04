@@ -753,33 +753,9 @@ sim_main(void)
       regs.regs_F.d[MD_REG_ZERO] = 0.0;
 #endif /* TARGET_ALPHA */
 
-      //Initializing Features
-      // md_addr_t tag_current;
-      // if(itlb){
-      //   tag_current = (addr) >> itlb->tag_shift;
-      // }else if(cache_il1){
-      //   tag_current = (addr) >> cache_il1->tag_shift;
-      // }
+      
       md_addr_t pc_current = regs.regs_PC;
-      // printf("%ld\n", pc_current);
-      // set_current_PC(pc_current);
       current_PC = pc_current;
-      printf("The current PC in sim-cache is %ld\n", current_PC);
-      // set_tag_feature(tag_current);
-      // insert(pc_current);
-
-      //XORing the features with the current pc
-      // md_addr_t hashed_features[6];
-      // for(int i=0; i<6; i++){
-      //   hashed_features[i] = features[i] ^ pc_current;
-      // }
-
-      // md_addr_t table0[256] = {0};
-      // md_addr_t table1[256] = {0};
-      // md_addr_t table2[256] = {0};
-      // md_addr_t table3[256] = {0};
-      // md_addr_t table4[256] = {0};
-      // md_addr_t table5[256] = {0};
 
       /* Initialize table weights */
       
