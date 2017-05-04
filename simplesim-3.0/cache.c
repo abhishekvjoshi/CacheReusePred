@@ -272,6 +272,8 @@ update_way_list(struct cache_set_t *set,	/* set contained way chain */
     panic("bogus WHERE designator");
 }
 
+/* Method to verify if the cache being accessed 
+is the LLC */
 bool check_name_is_LLC (char *name){
   char expname[3] = {'u', 'l', '2'};
   int i = 0;
@@ -293,20 +295,24 @@ bool check_name_is_LLC (char *name){
 
 }
 
-/* To be modified as needed */
+/* Method to derive the modulus
+of the hashed features to enable 
+appropriate access to the table 
+entries. */
 md_addr_t
 hash_func(md_addr_t addr)
 {
   return addr % TABLE_SIZE;
 }
 
+/* Method to obtain the prediction of the 
+perceptron. A structure containing the hashed 
+features are passed as parameter to obtain
+the prediction. */
 int 
 obtain_prediction(struct features indexes)
 {
   int temp_yout;
-  // Incorrect hash function leading to very huge feature values and such tables would not be accessible !
-  // Hence facing a seg fault at this point ......
-  // printf("The first table value is %ld\n", indexes.tag7);
   temp_yout = tables[indexes.PC0].w_PC0 +
               tables[indexes.PC1].w_PC1 +
               tables[indexes.PC2].w_PC2 +
@@ -322,6 +328,8 @@ obtain_prediction(struct features indexes)
 struct features
 saturating_decrement_weights(struct features feats)
 {
+  /* The respective table entries are accessed 
+  using the hashed features and decremented */
   if (tables[feats.PC0].w_PC0 > -32)
   {
     tables[feats.PC0].w_PC0--;
@@ -357,6 +365,8 @@ saturating_decrement_weights(struct features feats)
 struct features
 saturating_increment_weights(struct features feats)
 {
+  /* The respective table entries are accessed 
+  using the hashed features and incremented */
   if (tables[feats.PC0].w_PC0 < 31)
   {
     tables[feats.PC0].w_PC0++;
@@ -388,15 +398,19 @@ saturating_increment_weights(struct features feats)
   }
 }
 
+/* Method to train the predictor */
 int
 train_predictor(struct features indexes, 
                 int temp_yout, 
                 bool replacement)
 {
-  // int temp_yout = obtain_prediction(indexes);
-  // printf("Training threshold is %d \n", training_threshold);
 
-  if (replacement && temp_yout < training_threshold)
+  /* If the sampler is accessed and we obtain an eviction in the sampler due to no tag match 
+   and the predicted value is less than the training or replacement threshold then the predictor 
+   tables indexed by the hashed features are incremented. If we obtain a tag match in the sampler
+   and the prediction from the perceptron is greater than -1*threshold then we increment
+   the entries in the predictor table indexed by the hashed features.  */
+  if (replacement && ((temp_yout < training_threshold) || temp_yout < replace_threshold))
   {
     saturating_increment_weights(indexes);
   }
@@ -408,6 +422,12 @@ train_predictor(struct features indexes,
 }
 
 
+/* Method to obtain the features on the
+current access based on the current program 
+counter, the most recent program counters to
+access the LLC and the tag. Each of the features
+are XORed with the current Program counter
+to obtain the requried features */
 struct features
 derive_features(md_addr_t tag)
 {
@@ -422,6 +442,10 @@ derive_features(md_addr_t tag)
   return feats;
 }
 
+/* Method to modify the lru status 
+of each block in a sampled set when
+there is a cache access to the respective 
+sampled set */
 void 
 modify_lru_status(md_addr_t set, 
                   int blk, 
@@ -439,30 +463,27 @@ modify_lru_status(md_addr_t set,
   sampler[set].blks[blk].lru_bits = 0;
 }
 
+
 void
 sampler_access( md_addr_t tag, 
                 md_addr_t sampled_set_index,
                 int assoc)
 {
   int nbits = get_number_of_bits_in_address(tag);
-  // printf("Size of tag is %d\n", nbits);
   int blk_index = 0;
-  md_addr_t exp_part_tag = tag >> (nbits - 8);
-  // printf("Sampler access has begun\n");
+  md_addr_t exp_part_tag = tag >> 8;
 
+  /* Check if there is a partial tag match for any block in the 
+  set. If so then the block is modified to store the current features,
+  and current prediction */
   for (blk_index = 0; blk_index < assoc; blk_index++)
   {
-    // printf("Partial tag about to be extracted for sampler and set is %d and block index is %d\n");
-    md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag;// >> (nbits - 15);
+    md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag;
 
     
     if (true_part_tag == exp_part_tag && (sampler[sampled_set_index].blks[blk_index].valid == 1))
     {
-      // modify y_out
-
-      // printf("Tag match occured in sampler %d\n", 1);
       train_predictor(sampler[sampled_set_index].blks[blk_index].feats, sampler[sampled_set_index].blks[blk_index].y_out, false);
-      // printf("Predictor training completed \n");
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       sampler[sampled_set_index].blks[blk_index].y_out = obtain_prediction(sampler[sampled_set_index].blks[blk_index].feats);
       modify_lru_status(sampled_set_index, blk_index, assoc);
@@ -470,40 +491,34 @@ sampler_access( md_addr_t tag,
     }
   }
 
-  // printf("Completed check for sampler hit \n");
-
+  /* Check for the presence of any invalid sampler block to store the current features,
+  and current prediction */
   for (blk_index = 0; blk_index < assoc; blk_index++)
   {
-    // md_addr_t true_part_tag = sampler[sampled_set_index].blks[blk_index].tag >> (nbits - 15);
 
     if (sampler[sampled_set_index].blks[blk_index].valid == 0)
     {
-      // printf("Found an invalid sampler way %d\n", 1);
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       sampler[sampled_set_index].blks[blk_index].valid = 1;
       sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
       sampler[sampled_set_index].blks[blk_index].y_out = obtain_prediction(sampler[sampled_set_index].blks[blk_index].feats);
-      // should y_out be modified in this case ? -> likely should be modified
       modify_lru_status(sampled_set_index, blk_index, assoc);
-      // printf("Invalid sampler way is now valid %d\n", 1);
       return;
 
     }
   }
 
   /* If no position is found in the set to input data, we consider
-  replacement */
+  replacement to store the current features, and current prediction */
   for (blk_index = 0; blk_index < assoc; blk_index++)
   {
     if (sampler[sampled_set_index].blks[blk_index].lru_bits == assoc-1)
     {
-      // printf("Sampler replacement has occurred %d\n", 1);
       train_predictor(sampler[sampled_set_index].blks[blk_index].feats, sampler[sampled_set_index].blks[blk_index].y_out, true);
       sampler[sampled_set_index].blks[blk_index].feats = derive_features(tag);
       modify_lru_status(sampled_set_index, blk_index, assoc);
       sampler[sampled_set_index].blks[blk_index].tag = exp_part_tag;
       sampler[sampled_set_index].blks[blk_index].y_out = obtain_prediction(sampler[sampled_set_index].blks[blk_index].feats);
-      // modify y_out
       return;
     }
   }
@@ -529,15 +544,15 @@ cache_create(char *name,		/* name of the cache */
   struct cache_t *cp;
   struct cache_blk_t *blk;
   int i, j, bindex;
-  // md_addr_t current_PC;
-  // cur_PC = current_PC;
   num_sets = nsets/SETS_JUMPS;
   int tab_index = 0;
-  training_threshold = 310;
-  bypass_threshold = -1000;
-  replace_threshold = 40;
-  // printf("The name when creating cache is %s\n", name);
+  /* Set the three threshold parameters */
+  training_threshold = 150;
+  bypass_threshold = 150;
+  replace_threshold = 100;
 
+  /* Initialize the values of the predictor tables to be 
+  0 upon start */
   for (tab_index=0; tab_index < 256; tab_index++){
         tables[tab_index].w_PC0 = 0;
         tables[tab_index].w_PC1 = 0;
@@ -570,6 +585,7 @@ cache_create(char *name,		/* name of the cache */
   /* allocate the cache structure */
   cp = (struct cache_t *)
     calloc(1, sizeof(struct cache_t) + (nsets-1)*sizeof(struct cache_set_t));
+  /* Allocate the sampler */  
   if (check_name_is_LLC (name))
   {
     sampler = calloc(nsets/SETS_JUMPS, sizeof(struct sampler_set) + sizeof(int) + sizeof(struct sampler_blk));
@@ -655,6 +671,7 @@ cache_create(char *name,		/* name of the cache */
          chains, if hash table exists */
       for (j=0; j<assoc; j++)
 	{
+    /* Allocate the sampler blocks and set their properties to 0 */
     if (i%SETS_JUMPS == 0 && check_name_is_LLC (name))
     {
       sampler[i/SETS_JUMPS].blks = calloc(assoc, sizeof(signed int) + 2* sizeof(unsigned int) + 7 * sizeof(md_addr_t) + sizeof(struct features));
@@ -677,7 +694,7 @@ cache_create(char *name,		/* name of the cache */
 	  blk->status = 0;
 	  blk->tag = 0;
 	  blk->ready = 0;
-    blk->reuse = false;
+    blk->reuse = true;
 	  blk->user_data = (usize != 0
 			    ? (byte_t *)calloc(usize, sizeof(byte_t)) : NULL);
 
@@ -916,22 +933,21 @@ cache_access(struct cache_t *cp,	/* cache to access */
   md_addr_t bofs = CACHE_BLK(cp, addr);
   struct cache_blk_t *blk, *repl;
   int lat = 0;
-  // md_addr_t current_PC;
-  // cur_PC = current_PC;
 
 
   if (check_name_is_LLC(cp->name))
   {
-
-    // printf("Cache access by: %s\n", cp->name);
-    // printf("Current PC is %ld\n", cur_PC);
-    // sleep(10);
+    /* Set the PC history if the 
+    LLC is being accessed */
     set_PC_LLC_history();
-    sampler_access(tag, set/SETS_JUMPS, cp->assoc);
-    // printf("Sampler access completed \n");
+    /* Access the corresponding 
+    sampler set */
+    if (set%SETS_JUMPS == 0)
+    {
+      sampler_access(tag, set/SETS_JUMPS, cp->assoc);
+    }
   }
 
-  // printf("Completed sampler access \n");
   /* default replacement address */
   if (repl_addr)
     *repl_addr = 0;
@@ -988,21 +1004,18 @@ cache_access(struct cache_t *cp,	/* cache to access */
 
   /* select the appropriate block to replace, and re-link this entry to
      the appropriate place in the way list */
+
+  /* In case of a cache miss in the LLC, check the prediction indicates a
+  value greater than the bypass threshold. If so the incoming block is bypassed */
   if (check_name_is_LLC(cp->name))
   {
-
-    // Pending work for cache miss
-
-    // printf("A cache miss has now occurred for cache : %s\n", cp->name);
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
-    // printf("Prediction successfully obtained\n");
-    // printf("Bypass threshold is %d \n", bypass_threshold);
     if (predicted_yout < bypass_threshold)
     {
-      // printf("Bypass is not going to occur \n");
-      // blk->reuse = true;
-      /* Check for invalid block */
+
+      /* Search for a cache block that was predicted 
+      to be not reused */
       for (blk=cp->sets[set].way_head;
       blk;
       blk=blk->way_next)
@@ -1013,13 +1026,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
           goto continue_without_replacing;
         }
       }
-      // printf("Choosing to replace normally\n");
+      /* If block is found which indicates no future reuse
+      then evict the least recently used block */
       goto replace_normally;
     }
     else
     {
-      // blk->reuse = false;
-      // printf("Bypass has occurred \n");
       return lat;
     }
   }
@@ -1076,10 +1088,19 @@ cache_access(struct cache_t *cp,	/* cache to access */
     default:
       panic("bogus replacement policy");
     }
-    // printf("No issues so far for cache %s\n", cp->name);
     goto continue_without_replacing;
 
   continue_without_replacing:
+
+    /* Check for a miss prediction for the evicted block and 
+    update predictor table entries. */
+    if (check_name_is_LLC(cp->name) && (repl -> reuse == true))
+    {
+
+    struct features current_feats = derive_features(tag);
+    int predicted_yout = obtain_prediction(current_feats);
+      saturating_increment_weights(current_feats);
+    }
 
     /* remove this block from the hash bucket chain, if hash exists */
     if (cp->hsize)
@@ -1157,10 +1178,18 @@ cache_access(struct cache_t *cp,	/* cache to access */
   {
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
-    // printf("Replacement threshold is %d\n", replace_threshold);
+
+    /* Check for misprediction of accessed cache block */
+    if (blk -> reuse == false)
+    {
+      saturating_decrement_weights(current_feats);
+    }
+
+    /* Update reuse prediction of the accessed cache block */
     if (predicted_yout < replace_threshold)
     {
       blk->reuse = true;
+
     }
     else
     {
@@ -1224,6 +1253,14 @@ cache_access(struct cache_t *cp,	/* cache to access */
   {
     struct features current_feats = derive_features(tag);
     int predicted_yout = obtain_prediction(current_feats);
+
+    /* Check for misprediction of accessed cache block */
+    if (blk -> reuse == false)
+    {
+      saturating_decrement_weights(current_feats);
+    }
+
+    /* Update reuse prediction of the accessed cache block */
     if (predicted_yout < replace_threshold)
     {
       blk->reuse = true;

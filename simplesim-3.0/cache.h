@@ -226,26 +226,59 @@ enum cache_policy {
 /* The hashed features */
 struct features
 {
+  /* The current Program Counter 
+  right shifted by 2 and later XORed 
+  with the current PC */
 	md_addr_t PC0;
+
+  /* The below three features are the
+  PC(i) right shifted by i and XORed PC(i)
+  is the ith most recent access to the 
+  LLC */
 	md_addr_t PC1;
 	md_addr_t PC2;
 	md_addr_t PC3;
+
+  /* Tag right shifted by 4 and XORed
+  with the current PC */
 	md_addr_t tag4;
+
+  /* Tag right shifted by 7 and XORed
+  with the current PC */
 	md_addr_t tag7;
 };
 
+/* Sampler Block or way */
 struct sampler_blk
 {
+  /* The partial tag obtained
+  from the most recent access to 
+  the respective block */
 	md_addr_t tag;
+
+  /* The most recent perceptron prediction
+  obtained from the most recent access to 
+  the respective block */
 	signed int y_out;
+
+  /* The hashed features of the access*/
 	struct features feats;
+
+  /* Unsigned integer to keep track 
+  of least recently accessed block */
 	unsigned int lru_bits;
+
+  /* Unsigned integer to indicate validity */
   unsigned int valid;
 
 };
 
+
+/* A sampled set */
 struct sampler_set
 {
+  /* Pointer to an array of
+  sampler blocks */
 	struct sampler_blk *blks;
 	unsigned int true_set_index;
 
@@ -254,9 +287,11 @@ struct sampler_set
 unsigned int num_sets;
 struct sampler_set *sampler;
 
-
+/* A structure to keep track of 
+the predictor table weights */
 struct table
 {
+
   signed int w_PC0;
   signed int w_PC1;
   signed int w_PC2;
@@ -265,6 +300,8 @@ struct table
   signed int w_tag7;
 };
 
+/* Variable to keep track of the 
+current Program Counter */
 extern md_addr_t cur_PC;
 
 
